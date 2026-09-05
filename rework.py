@@ -50,7 +50,7 @@ def git_status(args, root, timeout=60):
     a reader their path is not a git repository when git simply would not start points
     them at the wrong problem."""
     try:
-        p = subprocess.run(["git", "-C", root] + args, capture_output=True, text=True,
+        p = subprocess.run(["git", "-c", "core.quotePath=false", "-C", root] + args, capture_output=True, text=True,
                            timeout=timeout)
     except (subprocess.TimeoutExpired, OSError):
         return None, "down"

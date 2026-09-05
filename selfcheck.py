@@ -20,7 +20,8 @@ death made every surviving commit look rewritten whenever the tip fell inside th
 and it was wrong on every repository until an independent check caught it. `still-standing`
 below is that bug's permanent guard.
 """
-import json, os, subprocess, sys
+import json
+import os, os, subprocess, sys
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -163,6 +164,23 @@ def main():
                          "detail": "expected at least 7 commits in the bundled repository, "
                                    "the survey read %s"
                                    % (d or {}).get("commits_read")})
+
+
+    # ---- git escapes non-ASCII paths before printing them, so a wrapper without
+    # core.quotePath=false reads back a filename that does not exist. On a repository
+    # with an accented filename this made blast-radius report no changes at all.
+    total += 1
+    try:
+        _src = open(os.path.join(HERE, "rework.py"), encoding="utf-8").read()
+        if "core.quotePath=false" not in _src:
+            failures.append({
+                "case": "paths:non-ascii-are-not-escaped",
+                "detail": "the git wrapper does not pass core.quotePath=false, so a path "
+                          "with a non-ASCII character comes back as an escaped string "
+                          "and every file named that way is silently missed"})
+    except OSError as _e:
+        failures.append({"case": "paths:non-ascii-are-not-escaped",
+                         "detail": "could not read the analyzer: %s" % _e})
 
     print(json.dumps({"passed": total - len(failures), "total": total,
                       "failures": failures[:10]}, separators=(",", ":")))
