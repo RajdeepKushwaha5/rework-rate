@@ -81,7 +81,7 @@ There is now a bundled case whose only job is to fail if that bug returns.
 ## It checks itself in front of you
 
 ```
-Self-check: PASSED (7/7 bundled analyzer cases)
+Self-check: PASSED (12/12 bundled analyzer cases)
 ```
 
 Before reading your history, the shipped analyzer is fed the bundled repository and has to
@@ -93,11 +93,16 @@ like a repository where everything survived.
 Proved by mutation, each restored byte-identically by checksum:
 
 ```
-tip-is-alive rule removed   -> 5/7   both the standing case and its guard fail
-too-recent guard removed    -> 6/7
-bot author detector removed -> 6/7
-history discovery broken    -> 0/7
+tip-is-alive rule removed     -> 10/12   the standing case and its guard both fail
+too-recent guard removed      ->  8/15   three cases appear, and the analyzer stops running
+bot author detector removed   -> 11/12
+git failure read as an answer -> 10/12
 ```
+
+That last one was added after the fact. Every case here ran on a machine where git works,
+so the branch that reads a *failed* git was never exercised, and it reported "that path is
+not inside a git repository" about a directory that plainly was one. git failing is this
+play failing to look; it is not a fact about your repository, and it now says so.
 
 ## Licence
 

@@ -107,6 +107,54 @@ def main():
                          "detail": "no bundled case asserts this verdict, so removing the "
                                    "rule that produces it would not be noticed"})
 
+    # ---- git failing is not a fact about the repository
+    sys.path.insert(0, HERE)
+    try:
+        import rework
+    except Exception as e:
+        total += 1
+        failures.append({"case": "analyzer-imports", "detail": str(e)})
+        rework = None
+
+    if rework is not None:
+        class Fake(object):
+            def __init__(self, rc, err):
+                self.returncode, self.stdout, self.stderr = rc, "", err
+
+        real = rework.subprocess.run
+        try:
+            cases = [
+                ("git answered: not a repository", "no",
+                 lambda *a, **k: Fake(128, "fatal: not a git repository")),
+                ("git exited without explaining", "down", lambda *a, **k: Fake(1, "")),
+                ("git is not installed", "down",
+                 lambda *a, **k: (_ for _ in ()).throw(OSError("no git"))),
+                ("git timed out", "down",
+                 lambda *a, **k: (_ for _ in ()).throw(
+                     rework.subprocess.TimeoutExpired("git", 60))),
+            ]
+            for label, want, fn in cases:
+                rework.subprocess.run = fn
+                total += 1
+                how = rework.git_status(["rev-parse", "--git-dir"], "/anywhere")[1]
+                if how != want:
+                    failures.append({"case": "git:%s" % want,
+                                     "detail": "%s was read as %r, expected %r"
+                                               % (label, how, want)})
+
+            # and the status the reader is shown must match
+            rework.subprocess.run = lambda *a, **k: Fake(1, "")
+            total += 1
+            st = rework.survey("/anywhere", 5, 30).get("status")
+            if st != "git-unavailable":
+                failures.append({
+                    "case": "git:failure-is-not-a-claim-about-the-repository",
+                    "detail": "with git failing the survey reported %r. Telling someone "
+                              "their path is not a git repository when git would not "
+                              "start sends them to check the wrong thing" % st})
+        finally:
+            rework.subprocess.run = real
+
     # discovery: a history read that returns nothing looks like a repository where
     # everything survived, and every case above would still pass on an empty set
     total += 1

@@ -39,12 +39,26 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
 def git(args, root, timeout=60):
+    return git_status(args, root, timeout)[0]
+
+
+def git_status(args, root, timeout=60):
+    """stdout, and whether git actually answered.
+
+    "no" means git ran and said this is not a repository. "down" means git could not be
+    run at all -- missing, timed out, or failing for a reason it did not explain. Telling
+    a reader their path is not a git repository when git simply would not start points
+    them at the wrong problem."""
     try:
         p = subprocess.run(["git", "-C", root] + args, capture_output=True, text=True,
                            timeout=timeout)
     except (subprocess.TimeoutExpired, OSError):
-        return None
-    return p.stdout if p.returncode == 0 else None
+        return None, "down"
+    if p.returncode == 0:
+        return p.stdout, "ok"
+    if "not a git repository" in (p.stderr or "").lower():
+        return None, "no"
+    return None, "down"
 
 
 def added_ranges(root, commit, path):
@@ -125,7 +139,12 @@ def survey(root, commits, window):
     if os.path.exists(os.path.join(root, ".git", "shallow")):
         return {"status": "shallow-clone",
                 "detail": "a shallow clone carries no history to measure survival against"}
-    if git(["rev-parse", "--git-dir"], root) is None:
+    top, how = git_status(["rev-parse", "--git-dir"], root)
+    if how == "down":
+        return {"status": "git-unavailable",
+                "detail": "git could not be run here, so nothing was measured. This is "
+                          "not a statement about the repository."}
+    if top is None:
         return {"status": "not-a-git-repo", "detail": root}
     hist = read_history(root, commits)
     if hist is None:
