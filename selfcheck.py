@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Run the real analyzer against the bundled repository before it is trusted with yours.
+
+The assertions that prove this analyzer works live on the author's machine, where nobody
+running the play can see them. This feeds the shipped rework.py its own bundled history
+at run time, and the presentation withholds its verdict if any case fails.
+
+Two things a naive self-check misses, both because a green check above a broken analyzer
+is worse than no check at all:
+
+  every verdict needs a POSITIVE case, so deleting the rule that produces it fails here
+  rather than passing quietly.
+
+  DISCOVERY is checked, not only classification. A history read that returns nothing
+  reports a repository where everything survived, and no classification case would notice.
+
+One case exists for a specific bug rather than a rule. `git blame --reverse` names the TIP
+commit for a line that is still alive, meaning it last existed at HEAD. Reading that as a
+death made every surviving commit look rewritten whenever the tip fell inside the window,
+and it was wrong on every repository until an independent check caught it. `still-standing`
+below is that bug's permanent guard.
+"""
+import json, os, subprocess, sys
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+REWORK = os.path.join(HERE, "rework.py")
+
+# subject fragment -> the verdict the bundled history must produce
+EXPECTED = {
+    "add checkout handling": "REWRITTEN_WITHIN_WINDOW",
+    "add legacy helpers": "SUPERSEDED_LATER",
+    "add stable helpers": "STILL_STANDING",
+}
+MUST_COVER = {"REWRITTEN_WITHIN_WINDOW", "SUPERSEDED_LATER", "STILL_STANDING"}
+
+
+def run_json(args):
+    # spawned as a literal so the command can be checked against deps.toml
+    p = subprocess.run(["python3"] + args, capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or "").strip()[:200] or "exit %d" % p.returncode)
+    return json.loads(p.stdout)
+
+
+def main():
+    failures, total = [], 0
+    seen = set()
+    d = None
+    try:
+        s = run_json([REWORK, "survey", "demo", "200", "30"])
+        d = run_json([REWORK, "measure", "demo", json.dumps(s)])
+    except Exception as e:
+        total += len(EXPECTED)
+        failures.append({"case": "analyzer-runs", "detail": str(e)})
+
+    rows = {}
+    if d is not None:
+        for r in d.get("measured", []) + d.get("standing_sample", []):
+            rows[r["subject"]] = r
+
+    for fragment, verdict in sorted(EXPECTED.items()):
+        total += 1
+        seen.add(verdict)
+        row = None
+        for subject, r in rows.items():
+            if fragment in subject:
+                row = r
+                break
+        if row is None:
+            failures.append({"case": fragment,
+                             "detail": "expected %s, no such commit was measured" % verdict})
+        elif row["verdict"] != verdict:
+            failures.append({"case": fragment,
+                             "detail": "expected %s, produced %s"
+                                       % (verdict, row["verdict"])})
+
+    # the tip-is-alive guard: every line of an untouched commit must read as alive
+    total += 1
+    row = next((r for s, r in rows.items() if "add stable helpers" in s), None)
+    if row is None or row.get("still_alive") != row.get("added"):
+        failures.append({
+            "case": "tip-is-alive",
+            "detail": "a commit nothing has touched must have every line alive, got "
+                      "%s alive of %s added. blame --reverse names the tip commit for a "
+                      "living line, and reading that as a death makes every surviving "
+                      "commit look rewritten"
+                      % ((row or {}).get("still_alive"), (row or {}).get("added"))})
+
+    # a commit younger than the window can never be judged
+    total += 1
+    if d is not None and d.get("too_recent", 0) < 1:
+        failures.append({"case": "too-recent-is-not-survived",
+                         "detail": "the bundled history holds a three day old commit that "
+                                   "must be held back as too recent to judge, and none was"})
+
+    # the bot flag needs a positive case or the rule could be deleted unnoticed
+    total += 1
+    if not any(r.get("bot") for r in rows.values()):
+        failures.append({"case": "bot-author-recognised",
+                         "detail": "the bundled history holds a dependabot commit and no "
+                                   "row was flagged as bot authored"})
+
+    for verdict in sorted(MUST_COVER - seen):
+        total += 1
+        failures.append({"case": "coverage:%s" % verdict,
+                         "detail": "no bundled case asserts this verdict, so removing the "
+                                   "rule that produces it would not be noticed"})
+
+    # discovery: a history read that returns nothing looks like a repository where
+    # everything survived, and every case above would still pass on an empty set
+    total += 1
+    if d is None or d.get("commits_read", 0) < 7:
+        failures.append({"case": "discovery:reads-the-history",
+                         "detail": "expected at least 7 commits in the bundled repository, "
+                                   "the survey read %s"
+                                   % (d or {}).get("commits_read")})
+
+    print(json.dumps({"passed": total - len(failures), "total": total,
+                      "failures": failures[:10]}, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
