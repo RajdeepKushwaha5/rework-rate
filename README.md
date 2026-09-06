@@ -81,7 +81,7 @@ There is now a bundled case whose only job is to fail if that bug returns.
 ## It checks itself in front of you
 
 ```
-Self-check: PASSED (12/12 bundled analyzer cases)
+Self-check: PASSED (14/14 bundled analyzer cases)
 ```
 
 Before reading your history, the shipped analyzer is fed the bundled repository and has to
@@ -93,10 +93,10 @@ like a repository where everything survived.
 Proved by mutation, each restored byte-identically by checksum:
 
 ```
-tip-is-alive rule removed     -> 10/12   the standing case and its guard both fail
-too-recent guard removed      ->  8/15   three cases appear, and the analyzer stops running
-bot author detector removed   -> 11/12
-git failure read as an answer -> 10/12
+tip-is-alive rule removed     -> 12/14   the standing case and its guard both fail
+too-recent guard removed      -> 10/17   three cases appear, and the analyzer stops running
+bot author detector removed   -> 13/14
+git failure read as an answer -> 12/14
 ```
 
 That last one was added after the fact. Every case here ran on a machine where git works,
